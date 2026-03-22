@@ -1,5 +1,5 @@
 const DEFAULT_PROFILE = {
-    name: 'Josip D.',
+    name: 'Korisnik',
     gender: 'male',
     age: 30,
     weight: 80,
@@ -933,8 +933,8 @@ function drawCharts(timeline) {
     const energyCtx = document.getElementById('energyChart').getContext('2d');
     if (energyChartInstance) energyChartInstance.destroy();
     const energyMax = Math.max(...timeline.total, 40);
-    const referenceMax = Math.max((timeline.meta.averageHourlyExpenditure || 0) * 2, 20);
-    const chartMax = Math.max(energyMax * 1.1, referenceMax);
+    const averageHourlyExpenditure = Math.max(timeline.meta.averageHourlyExpenditure || 0, 20);
+    const chartMax = Math.max(averageHourlyExpenditure, energyMax * 1.1);
     energyChartInstance = new Chart(energyCtx, {
         type: 'line',
         data: {
