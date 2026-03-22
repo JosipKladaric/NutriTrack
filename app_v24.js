@@ -24,48 +24,56 @@ const OIL_LEVELS = {
 };
 
 const MODEL_CONSTANTS = {
-    // Literature anchors:
-    // - Healthy postprandial glucose usually peaks about 30-60 min and trends back toward baseline by 2-3 h,
-    //   with complete carbohydrate absorption often requiring up to 5-6 h (PMC6781941).
-    // - Healthy real-world CGM data showed average postprandial time-to-peak glucose of 97 min (PMC8120054).
-    // - Gastric emptying T50 for low-fat mixed meals commonly falls within 30-180 min, midpoint ~105 min (PMC10078504).
-    // - Postprandial triglycerides typically peak around 3-4 h and return toward baseline over 6-8 h (PMC7014867).
-    // - Two days of partial sleep deprivation reduced postprandial insulin sensitivity by about 22% (PMC5123208).
-    // - Short-term exercise training improved insulin sensitivity by about 11-15% in lean/obese adults (PMC3920903).
-    // - Ageing slows gastric emptying modestly; older men emptied protein drinks ~20% slower than young men (0.8 vs 1.0 kcal/min) (PMC4666943 / PMC6627312).
-    gastricEmptying: {
-        mixedMealT50Minutes: 105,
-        energySensitivityPer1000Kcal: 0.36,
-        fatSensitivityPerGram: 0.013,
-        fiberSensitivityPerGram: 0.018,
-        proteinSensitivityPerGram: 0.004
-    },
-    glucose: {
-        peakMinutes: 60,
-        cgmPeakMinutes: 97,
-        normalizationMinutes: 150,
-        completionMinutes: 330
-    },
-    lipid: {
-        peakMinutes: 240,
-        recoveryMinutes: 420
-    },
+    // ── Literature anchors ──
+    // Carbohydrate absorption:
+    //   - Healthy postprandial glucose peaks ~30-60 min, baseline by 2-3 h (PMC6781941)
+    //   - Real-world CGM mean time-to-peak glucose: 46 min (IQR 30-72 min) (PMC8120054)
+    //   - Gastric emptying T50 mixed meal: 30-105 min (PMC10078504)
+    // Protein absorption:
+    //   - Whey protein absorption rate ~8-10 g/h, casein slower (PMC5828430)
+    //   - Mixed-meal protein: peak amino acids ~60-120 min (PMC3644706)
+    // Fat absorption:
+    //   - Postprandial triglycerides peak ~3-4 h, baseline over 6-8 h (PMC7014867)
+    //   - Lipid absorption requires bile/lipase; slower gastric emptying (PMC6627312)
+    // Sleep & activity:
+    //   - Partial sleep deprivation → ~22% reduced insulin sensitivity (PMC5123208)
+    //   - Exercise training → ~11-15% improved insulin sensitivity (PMC3920903)
+    //   - Ageing slows gastric emptying ~20% after 60 (PMC4666943)
+    //
+    // Model: Gamma-distribution absorption curves
+    //   Energy(t) = totalKcal * gamma_pdf(t; k, θ)
+    //   where k = shape (controls peak sharpness), θ = scale (controls time-to-peak)
+    //   Peak occurs at t = (k-1)*θ for k > 1
+    //
     macros: {
         carbs: {
-            gastricHalfLifeHours: 0.95,
-            absorptionHalfLifeHours: 0.75,
-            utilizationHalfLifeHours: 0.9
+            // Peak at ~0.75h (45 min). k=3.0, θ=0.375 → peak=(3-1)*0.375=0.75h
+            // Duration ~3-4h for complete absorption
+            shapeK: 3.0,
+            scaleTheta: 0.375,
+            durationHours: 4.0
         },
         protein: {
-            gastricHalfLifeHours: 1.45,
-            absorptionHalfLifeHours: 1.3,
-            utilizationHalfLifeHours: 1.5
+            // Peak at ~1.5h (90 min). k=3.0, θ=0.75 → peak=(3-1)*0.75=1.5h
+            // Duration ~5-6h
+            shapeK: 3.0,
+            scaleTheta: 0.75,
+            durationHours: 6.0
         },
         fat: {
-            gastricHalfLifeHours: 2.4,
-            absorptionHalfLifeHours: 2.5,
-            utilizationHalfLifeHours: 2.6
+            // Peak at ~3.0h. k=2.5, θ=2.0 → peak=(2.5-1)*2.0=3.0h
+            // Duration ~8-10h
+            shapeK: 2.5,
+            scaleTheta: 2.0,
+            durationHours: 10.0
         }
+    },
+    // Gastric emptying modifiers: slow down absorption based on meal composition
+    gastricBrake: {
+        energySensitivityPer1000Kcal: 0.25,
+        fatSensitivityPerGram: 0.008,
+        fiberSensitivityPerGram: 0.012,
+        proteinSensitivityPerGram: 0.003
     },
     profile: {
         insulinSensitivity: {
@@ -74,9 +82,9 @@ const MODEL_CONSTANTS = {
             high: 1.15
         },
         digestionSpeed: {
-            slow: 0.85,
+            slow: 0.82,
             normal: 1.0,
-            fast: 1.15
+            fast: 1.18
         },
         sleepRestrictionPenaltyPerHourUnder7: 0.073,
         maxSleepPenalty: 0.22,
@@ -90,12 +98,50 @@ const MODEL_CONSTANTS = {
         ageGastricSlowdownPerYearAfter60: 0.005,
         maxAgeGastricSlowdown: 0.2
     },
+    // Circadian rhythm of insulin sensitivity
+    // Insulin sensitivity is highest in the morning and lowest in the evening
+    // ~30-50% reduction from morning to evening (PMC5765913)
+    circadian: {
+        // Cosine model: peak at peakHour, trough 12h later
+        peakHour: 8,      // 8:00 AM = highest insulin sensitivity
+        amplitude: 0.25   // ±25% variation from mean
+    },
+    // Thermic Effect of Food — energy cost of digesting each macro
+    // (PMC4258944)
+    tef: {
+        protein: 0.25,    // 20-30% of protein calories lost to digestion
+        carbs: 0.075,     // 5-10%
+        fat: 0.02         // 0-3%
+    },
+    // Second Meal Effect — high-fiber/legume meal reduces glycemic
+    // response of the next meal (PMC3862063, PMC4192822)
+    secondMealEffect: {
+        maxReduction: 0.25, // up to 25% peak reduction of next meal's carb curve
+        fiberThresholdGrams: 8,   // minimum fiber in previous meal to trigger
+        decayHalfLifeHours: 4,    // effect halves every 4 hours
+        maxGapHours: 8            // effect disappears after 8 hours
+    },
+    // Soluble fiber categories — foods in these categories get an extra
+    // gastric-slowing bonus because they contain more soluble (gel-forming) fiber
+    solubleFiberCategories: ['mahunarke', 'žitarice', '\u017eitarice'],
+    solubleFiberBonusPerGram: 0.02,  // extra brake per gram fiber from these categories
+    // Resistant starch — boiled+cooled starchy foods form retrograded starch
+    resistantStarchFoods: ['krumpir kuhani', 'batat', 'riža bijela kuhana', 'riža smeđa kuhana'],
+    resistantStarchFraction: 0.12,  // ~12% of starch becomes resistant after cooling
+    // Acid modifiers — vinegar, lemon juice slow gastric emptying
+    acidFoods: ['ocat', 'jabučni ocat', 'limun', 'limunov sok'],
+    acidGastricSlowdown: 0.15,  // 15% slower gastric emptying
+    // Exercise effects
+    exerciseEffects: {
+        epocFraction: 0.15, // 15% of activity calories expended post-workout
+        epocDurationHours: 3.0, // spread over 3 hours
+        glut4PeakBoost: 0.40, // +40% insulin sensitivity immediately after
+        glut4DecayHalfLifeHours: 6.0,
+        sympatheticSlowingMax: 0.35, // max 35% slower digestion during/just before
+        preExerciseWindowHours: 1.5 // begins 1.5 hours before training
+    },
     simulation: {
-        dtHours: 0.5,
-        minHorizonHours: 4.5,
-        maxHorizonHours: 14,
-        residualStopKcal: 0.8,
-        displayedStopKcalPerHour: 0.32
+        dtHours: 0.25  // 15-minute resolution for smoother curves
     }
 };
 
@@ -124,6 +170,9 @@ const selectors = {
     daySleep: document.getElementById('day-sleep'),
     dayWakeTime: document.getElementById('day-wake-time'),
     dayActivity: document.getElementById('day-activity'),
+    addActivityBtn: document.getElementById('add-activity-btn'),
+    dayActivitiesList: document.getElementById('day-activities-list'),
+    dayActivityCount: document.getElementById('day-activity-count'),
     dayMealsList: document.getElementById('day-meals-list'),
     dayMealCount: document.getElementById('day-meal-count'),
     mealEditorSection: document.getElementById('meal-editor-section'),
@@ -176,6 +225,7 @@ function loadDays() {
                 sleepHours: day.sleepHours ?? 8,
                 wakeTime: day.wakeTime || '07:00',
                 activityLoad: day.activityLoad || 'moderate',
+                activities: day.activities || [],
                 meals: (day.meals || []).map(normalizeMeal)
             }));
         } catch {
@@ -196,6 +246,7 @@ function loadDays() {
                 sleepHours: 8,
                 wakeTime: '07:00',
                 activityLoad: 'moderate',
+                activities: [],
                 meals: []
             });
         }
@@ -219,6 +270,7 @@ function normalizeMeal(meal) {
 function setupEventListeners() {
     selectors.addDayBtn.onclick = createNewDay;
     selectors.addMealBtn.onclick = createNewMeal;
+    if (selectors.addActivityBtn) selectors.addActivityBtn.onclick = createNewActivity;
     selectors.dayDate.onchange = (e) => updateDayDate(e.target.value);
     selectors.daySleep.oninput = (e) => updateDaySleep(e.target.value);
     selectors.dayWakeTime.onchange = (e) => updateDayWakeTime(e.target.value);
@@ -332,6 +384,7 @@ function selectDay(dayId) {
         state.currentMealId = day.meals[0]?.id || null;
     }
 
+    renderDayActivities(day);
     renderDayMeals(day);
     renderMealEditor();
     updateDayAnalysis(day);
@@ -379,6 +432,82 @@ function renderDayMeals(day) {
                         <span class="meal-time">${formatTime(meal.timestamp)} · ${Math.round(totals.cals)} kcal</span>
                     </div>
                     <button onclick="event.stopPropagation(); removeMeal('${meal.id}')" class="icon-btn" style="color: var(--color-error);">×</button>
+                </div>
+            `;
+        }).join('');
+}
+
+function createNewActivity() {
+    const day = getCurrentDay();
+    if (!day) return;
+    day.activities = day.activities || [];
+    const dateStr = day.date || toDayKey(new Date());
+    day.activities.push({
+        id: Date.now().toString(),
+        name: 'Trening',
+        timestamp: `${dateStr}T18:00:00.000Z`,
+        durationMinutes: 45,
+        calories: 300
+    });
+    saveState();
+    renderDayActivities(day);
+    updateDayAnalysis(day);
+}
+
+function updateActivityField(id, field, value) {
+    const day = getCurrentDay();
+    if (!day) return;
+    const activity = day.activities.find(a => a.id === id);
+    if (!activity) return;
+    if (field === 'timestamp') {
+        activity.timestamp = new Date(value).toISOString();
+    } else {
+        activity[field] = value;
+    }
+    saveState();
+    renderDayActivities(day);
+    updateDayAnalysis(day);
+}
+
+function removeActivity(id) {
+    const day = getCurrentDay();
+    if (!day) return;
+    day.activities = day.activities.filter(a => a.id !== id);
+    saveState();
+    renderDayActivities(day);
+    updateDayAnalysis(day);
+}
+
+function renderDayActivities(day) {
+    if (!selectors.dayActivityCount) return;
+    day.activities = day.activities || [];
+    selectors.dayActivityCount.textContent = `${day.activities.length} aktivnosti`;
+    
+    if (!day.activities.length) {
+        selectors.dayActivitiesList.innerHTML = '<div style="padding: 14px; border: 1px dashed var(--color-neutral-stroke-1); border-radius: 8px; color: var(--color-neutral-foreground-3); font-size: 13px;">Nema dodatnih aktivnosti za ovaj dan.</div>';
+        return;
+    }
+
+    selectors.dayActivitiesList.innerHTML = [...day.activities]
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+        .map((activity) => {
+            return `
+                <div class="meal-item meal-row-compact" style="flex-wrap: wrap; gap: 8px;">
+                    <div style="flex: 1 1 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <input type="text" value="${activity.name}" onchange="updateActivityField('${activity.id}', 'name', this.value)" style="border: none; background: transparent; font-weight: 600; font-size: 13px; color: var(--color-neutral-foreground-1); outline: none; width: 100%;">
+                        <button onclick="removeActivity('${activity.id}')" class="icon-btn" style="color: var(--color-error); padding: 0 4px;">×</button>
+                    </div>
+                    <div style="display: flex; gap: 8px; width: 100%; align-items: center;">
+                        <input type="datetime-local" value="${toLocalDateTimeValue(activity.timestamp)}" onchange="updateActivityField('${activity.id}', 'timestamp', this.value)" style="flex: 1; border: 1px solid var(--color-neutral-stroke-1); border-radius: 4px; padding: 4px 8px; font-size: 11px; height: 28px; width: 120px;">
+                        <div style="display: flex; align-items: center; border: 1px solid var(--color-neutral-stroke-1); border-radius: 4px; padding: 0 4px; height: 28px;">
+                            <input type="number" value="${activity.durationMinutes}" min="1" max="600" onchange="updateActivityField('${activity.id}', 'durationMinutes', Number(this.value))" style="width: 32px; border: none; text-align: right; background: transparent; font-size: 12px; outline: none;">
+                            <span style="font-size: 11px; padding: 0 4px 0 2px; color: var(--color-neutral-foreground-3);">min</span>
+                        </div>
+                        <div style="display: flex; align-items: center; border: 1px solid var(--color-neutral-stroke-1); border-radius: 4px; padding: 0 4px; height: 28px;">
+                            <input type="number" value="${activity.calories}" min="1" max="5000" onchange="updateActivityField('${activity.id}', 'calories', Number(this.value))" style="width: 38px; border: none; text-align: right; background: transparent; font-size: 12px; outline: none;">
+                            <span style="font-size: 11px; padding: 0 4px 0 2px; color: var(--color-neutral-foreground-3);">kcal</span>
+                        </div>
+                    </div>
                 </div>
             `;
         }).join('');
@@ -681,8 +810,11 @@ function buildDayTimeline(day, profile) {
     const protein = [];
     const fat = [];
     const wakeHour = parseTimeToHour(day.wakeTime || '07:00');
+    const dt = MODEL_CONSTANTS.simulation.dtHours; // 0.25h = 15 min
+    const totalSlots = Math.round(24 / dt) + 1;
 
-    for (let offsetHour = 0; offsetHour <= 24; offsetHour += 0.5) {
+    for (let i = 0; i < totalSlots; i++) {
+        const offsetHour = i * dt;
         labels.push(formatTimelineHour((wakeHour + offsetHour) % 24));
         total.push(0);
         carbs.push(0);
@@ -694,10 +826,17 @@ function buildDayTimeline(day, profile) {
     const totals = calculateDayTotals(day);
     const bmr = calculateBMR(profile.weight, profile.height, profile.age, profile.gender);
     const target = bmr * (DAY_ACTIVITY_FACTORS[day.activityLoad] || DAY_ACTIVITY_FACTORS.moderate);
-    day.meals.forEach((meal) => {
-        const mealCurve = simulateMealCurve(meal, context);
-        const relativeHour = normalizeDayHour(getLocalMealHour(meal.timestamp) - wakeHour);
-        const offset = Math.round(relativeHour / 0.5);
+
+    // Sort meals chronologically for second-meal-effect
+    const sortedMeals = [...day.meals].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    let previousMealInfo = null;
+    let totalTefLoss = 0;
+
+    sortedMeals.forEach((meal) => {
+        const mealHour = getLocalMealHour(meal.timestamp);
+        const mealCurve = simulateMealCurve(meal, context, mealHour, previousMealInfo, day.activities || []);
+        const relativeHour = normalizeDayHour(mealHour - wakeHour);
+        const offset = Math.round(relativeHour / dt);
         mealCurve.energy.total.forEach((value, index) => {
             const targetIndex = offset + index;
             if (targetIndex < 0 || targetIndex >= total.length) return;
@@ -706,7 +845,108 @@ function buildDayTimeline(day, profile) {
             protein[targetIndex] += mealCurve.energy.protein[index];
             fat[targetIndex] += mealCurve.energy.fat[index];
         });
+
+        totalTefLoss += mealCurve.meta.tefLoss || 0;
+
+        // Store this meal's info for second-meal-effect on next meal
+        const mealTotals = calculateMealTotals(meal);
+        previousMealInfo = {
+            hour: mealHour,
+            fiber: mealTotals.fiber,
+            hasLegumes: meal.ingredients.some(ing =>
+                (ing.category || '').toLowerCase().includes('mahunark')
+            ),
+            hasSolubleFiber: meal.ingredients.some(ing =>
+                MODEL_CONSTANTS.solubleFiberCategories.some(cat =>
+                    normalizeText(ing.category || '').includes(normalizeText(cat))
+                )
+            )
+        };
     });
+
+    // ── Build variable expenditure line (sleep vs awake) ──
+    // Sleep metabolic rate ≈ 0.9 * BMR (PMC3619301)
+    // Waking rate adjusted so 24h total = TDEE
+    const sleepHours = clamp(Number(day.sleepHours) || 8, 0, 16);
+    const bmrPerHour = bmr / 24;
+    const sleepRate = bmrPerHour * 0.9;
+    const wakeHours = 24 - sleepHours;
+    // Distribute: sleepHours * sleepRate + wakeHours * wakeRate = TDEE
+    const wakeRate = wakeHours > 0 ? (target - sleepHours * sleepRate) / wakeHours : target / 24;
+    // Bedtime: wake_time - sleep_hours (wrapped around 24h)
+    const bedHour = normalizeDayHour(wakeHour - sleepHours + 24);
+    // Pre-compute relative sleep window (relative to wake)
+    const sleepStartOffset = normalizeDayHour(bedHour - wakeHour + 24);  // hours after wake until bed
+    // Smooth sigmoid transition (~30 min ramp)
+    const transitionWidth = 0.5; // hours
+    const expenditure = [];
+    for (let i = 0; i < totalSlots; i++) {
+        const offsetH = i * dt;
+        // Determine if this slot is in sleep or wake zone
+        // Sleep zone: from sleepStartOffset to 24 (end of timeline)
+        // and from 0 to 0 (wake=start of timeline by definition)
+        // Since timeline starts at wake, sleep is at the end: sleepStartOffset..24
+        const distToSleepStart = offsetH - sleepStartOffset;
+        const distToWake = offsetH; // distance from wake (timeline start)
+        // Sigmoid: 0=awake, 1=asleep
+        let sleepFraction;
+        if (sleepHours <= 0) {
+            sleepFraction = 0;
+        } else if (sleepHours >= 24) {
+            sleepFraction = 1;
+        } else {
+            // Going to sleep transition (sigmoid rising around sleepStartOffset)
+            const fallAsleep = 1 / (1 + Math.exp(-10 * (distToSleepStart / transitionWidth)));
+            // Waking up transition (sigmoid falling around 0 / 24)
+            // For the waking transition, we need to handle the wrap:
+            // At the very start of timeline (offsetH~0), person just woke up (awake)
+            // At the very end (offsetH~24), person is about to wake (still asleep near end)
+            const wakeUpProgress = offsetH < sleepHours * 0.5
+                ? 0  // clearly just woke, no sleep fraction from "wrapping"
+                : fallAsleep;
+            sleepFraction = clamp(wakeUpProgress, 0, 1);
+        }
+        const rate = sleepRate * sleepFraction + wakeRate * (1 - sleepFraction);
+        expenditure.push(Math.round(rate * 10) / 10);
+    }
+
+    // Add explicit activities spikes to expenditure
+    let totalActivityKcal = 0;
+    const activities = day.activities || [];
+    activities.forEach(activity => {
+        const kcal = Number(activity.calories) || 0;
+        totalActivityKcal += kcal;
+        const actHour = getLocalMealHour(activity.timestamp);
+        const relativeHour = normalizeDayHour(actHour - wakeHour);
+        const startOffset = Math.round(relativeHour / dt);
+        const durationH = Math.max(0.1, (Number(activity.durationMinutes) || 0) / 60);
+        const slotsCount = Math.max(1, Math.round(durationH / dt));
+        const rateToAdd = kcal / durationH;
+        
+        for (let i = 0; i < slotsCount; i++) {
+            const targetIndex = startOffset + i;
+            if (targetIndex >= 0 && targetIndex < expenditure.length) {
+                expenditure[targetIndex] = Math.round((expenditure[targetIndex] + rateToAdd) * 10) / 10;
+            }
+        }
+
+        // EPOC (Afterburn effect): 15% of calories spread smoothly over 3 hours
+        const epocKcal = kcal * MODEL_CONSTANTS.exerciseEffects.epocFraction;
+        const epocDurationH = MODEL_CONSTANTS.exerciseEffects.epocDurationHours;
+        const epocSlots = Math.round(epocDurationH / dt);
+        const epocEndOffset = startOffset + slotsCount;
+        for (let i = 0; i < epocSlots; i++) {
+            const targetIndex = epocEndOffset + i;
+            if (targetIndex >= 0 && targetIndex < expenditure.length) {
+                // Exponential decay of EPOC rate
+                const fraction = Math.exp(-3 * (i / epocSlots)); // decays smoothly
+                const epocRate = (epocKcal / epocDurationH) * fraction * 1.5; // normalization
+                expenditure[targetIndex] = Math.round((expenditure[targetIndex] + epocRate) * 10) / 10;
+            }
+        }
+    });
+
+    const finalTargetKcal = Math.round(target + totalActivityKcal);
 
     return {
         labels,
@@ -714,12 +954,18 @@ function buildDayTimeline(day, profile) {
         carbs: carbs.map((value) => Math.round(value * 10) / 10),
         protein: protein.map((value) => Math.round(value * 10) / 10),
         fat: fat.map((value) => Math.round(value * 10) / 10),
+        expenditure,
         meta: {
             intakeKcal: Math.round(totals.cals),
-            targetKcal: Math.round(target),
-            deficitKcal: Math.round(target - totals.cals),
+            targetKcal: finalTargetKcal,
+            deficitKcal: Math.round(finalTargetKcal - totals.cals),
             wakeTime: day.wakeTime || '07:00',
-            averageHourlyExpenditure: target / 24
+            bedTime: formatTimelineHour(bedHour),
+            sleepRate: Math.round(sleepRate * 10) / 10,
+            wakeRate: Math.round(wakeRate * 10) / 10,
+            averageHourlyExpenditure: target / 24,
+            tefLossKcal: Math.round(totalTefLoss),
+            totalActivityKcal
         }
     };
 }
@@ -740,11 +986,6 @@ function buildMetabolicContext(day, profile) {
     );
     const ageGastricFactor = 1 - ageSlowdown;
     const activityInsulinBoost = MODEL_CONSTANTS.profile.activityInsulinBoost[day.activityLoad] || MODEL_CONSTANTS.profile.activityInsulinBoost.moderate;
-    const insulinSensitivity = clamp(
-        (insulinMap[profile.insulinSensitivity] || 1) * activityInsulinBoost * (1 - sleepPenalty),
-        0.65,
-        1.25
-    );
     const digestionSpeed = clamp(
         (digestionMap[profile.digestionSpeed] || 1) * clamp(1 - (sleepPenalty * 0.2), 0.9, 1.05),
         0.75,
@@ -752,125 +993,281 @@ function buildMetabolicContext(day, profile) {
     );
 
     return {
-        insulinSensitivity,
+        insulinSensitivity: clamp(
+            (insulinMap[profile.insulinSensitivity] || 1) * activityInsulinBoost * (1 - sleepPenalty),
+            0.65, 1.45
+        ),
         digestionSpeed,
         activityFactor,
-        gastricRate: clamp(ageGastricFactor * digestionSpeed * (1 + ((activityFactor - 1) * 0.04)), 0.72, 1.15),
-        absorptionRate: clamp(digestionSpeed * (1 + ((insulinSensitivity - 1) * 0.08)), 0.75, 1.18),
-        utilizationRate: clamp((1 + ((insulinSensitivity - 1) * 0.2) + ((activityFactor - 1) * 0.08)), 0.78, 1.16),
+        gastricRate: clamp(ageGastricFactor * digestionSpeed * (1 + ((activityFactor - 1) * 0.04)), 0.72, 1.25),
         sleepPenalty
     };
 }
 
-function simulateMealCurve(meal, context) {
+function simulateMealCurve(meal, context, mealHour, previousMealInfo, activities = []) {
     const totals = calculateMealTotals(meal);
-    const avgGi = totals.weight > 0 ? totals.giWeighted / totals.weight : 50;
-    const netCarbs = Math.max(0, totals.carb - (totals.fiber * 0.75));
     const sugarRatio = totals.carb > 0 ? clamp(totals.sugar / totals.carb, 0, 1) : 0;
     const totalCals = totals.cals;
     const prep = getPreparationModifiers(meal);
+    const dt = MODEL_CONSTANTS.simulation.dtHours;
+    const hour = mealHour !== undefined ? mealHour : 12;
+
+    // ── Per-ingredient carb-weighted GI (more accurate than weight-based) ──
+    let carbWeightedGiSum = 0;
+    let totalCarbGrams = 0;
+    meal.ingredients.forEach(ing => {
+        const factor = (ing.amount || 100) / 100;
+        const carbG = (ing.carbs || 0) * factor;
+        carbWeightedGiSum += (ing.gi || 0) * carbG;
+        totalCarbGrams += carbG;
+    });
+    const avgGi = totalCarbGrams > 0 ? carbWeightedGiSum / totalCarbGrams : 50;
+
+    // ── Soluble fiber bonus ──
+    // Foods from legume/grain categories have more soluble (gel-forming) fiber
+    let solubleFiberGrams = 0;
+    meal.ingredients.forEach(ing => {
+        const factor = (ing.amount || 100) / 100;
+        const cat = normalizeText(ing.category || '');
+        const isSoluble = MODEL_CONSTANTS.solubleFiberCategories.some(c =>
+            cat.includes(normalizeText(c))
+        );
+        if (isSoluble) solubleFiberGrams += (ing.fiber || 0) * factor;
+    });
+
+    // ── Resistant starch detection ──
+    let resistantStarchCarbs = 0;
+    if (meal.cookingMethod === 'boiled') {
+        meal.ingredients.forEach(ing => {
+            const nameLower = (ing.name || '').toLowerCase();
+            const isResistant = MODEL_CONSTANTS.resistantStarchFoods.some(f =>
+                nameLower.includes(f.toLowerCase())
+            );
+            if (isResistant) {
+                const factor = (ing.amount || 100) / 100;
+                resistantStarchCarbs += (ing.carbs || 0) * factor * MODEL_CONSTANTS.resistantStarchFraction;
+            }
+        });
+    }
+
+    // ── Acid modifier (vinegar, lemon) ──
+    const hasAcid = meal.ingredients.some(ing =>
+        MODEL_CONSTANTS.acidFoods.some(a =>
+            normalizeText(ing.name || '').includes(normalizeText(a))
+        )
+    );
+
+    const netCarbs = Math.max(0, totals.carb - (totals.fiber * 0.75) - resistantStarchCarbs);
+
+    // ── Thermic Effect of Food (TEF) ──
+    // Net available energy = gross energy - energy used for digestion
+    const tefConstants = MODEL_CONSTANTS.tef;
+    const netCarbKcal = netCarbs * 4 * (1 - tefConstants.carbs);
+    const netProtKcal = totals.prot * 4 * (1 - tefConstants.protein);
+    const netFatKcal = totals.fat * 9 * (1 - tefConstants.fat);
+
+    // ── Circadian & Exercise modulation ──
+    const circ = MODEL_CONSTANTS.circadian;
+    const circadianFactor = 1 + circ.amplitude * Math.cos(2 * Math.PI * (hour - circ.peakHour) / 24);
+
+    let glut4Boost = 0;
+    let sympatheticSlowing = 0;
+
+    if (activities && activities.length > 0) {
+        activities.forEach(act => {
+            const actHour = getLocalMealHour(act.timestamp);
+            const durationH = Math.max(0.1, (Number(act.durationMinutes) || 0) / 60);
+            const actEndHour = actHour + durationH;
+            
+            // Post-exercise GLUT-4 insulin sensitivity boost
+            const gap = normalizeDayHour(hour - actEndHour);
+            // If gap is between 0 and 16 hours after end of activity
+            if (gap >= 0 && gap < 16) {
+                const decay = Math.exp(-Math.log(2) * gap / MODEL_CONSTANTS.exerciseEffects.glut4DecayHalfLifeHours);
+                glut4Boost = Math.max(glut4Boost, MODEL_CONSTANTS.exerciseEffects.glut4PeakBoost * decay);
+            }
+            
+            // Pre-exercise/During Exercise sympathetic gastric slowing
+            const preWindow = MODEL_CONSTANTS.exerciseEffects.preExerciseWindowHours;
+            // E.g. meal at 17:00, act at 18:00
+            const priorGap = normalizeDayHour(actEndHour - hour);
+            if (priorGap >= 0 && priorGap <= durationH + preWindow) {
+                const intensity = (Number(act.calories) || 300) / durationH;
+                const intensityFactor = clamp(intensity / 400, 0.5, 1.2);
+                sympatheticSlowing = Math.max(sympatheticSlowing, MODEL_CONSTANTS.exerciseEffects.sympatheticSlowingMax * intensityFactor);
+            }
+        });
+    }
+
+    const effectiveInsulinSensitivity = context.insulinSensitivity * (1 + glut4Boost);
+    const effectiveGastricRate = context.gastricRate * (1 - sympatheticSlowing);
+
+    // ── Second meal effect ──
+    let secondMealReduction = 0;
+    if (previousMealInfo) {
+        const sme = MODEL_CONSTANTS.secondMealEffect;
+        const gapHours = normalizeDayHour(hour - previousMealInfo.hour);
+        if (gapHours > 0 && gapHours <= sme.maxGapHours && previousMealInfo.fiber >= sme.fiberThresholdGrams) {
+            const fiberStrength = clamp((previousMealInfo.fiber - sme.fiberThresholdGrams) / 12, 0, 1);
+            const legumeBonus = previousMealInfo.hasLegumes ? 1.4 : 1.0;
+            const decay = Math.exp(-Math.log(2) * gapHours / sme.decayHalfLifeHours);
+            secondMealReduction = clamp(sme.maxReduction * fiberStrength * legumeBonus * decay, 0, sme.maxReduction);
+        }
+    }
+
+    // Gastric brake: high-calorie, high-fat, high-fiber meals slow absorption
     const gastricBrake = clamp(
         1
-        + ((totalCals / 1000) * MODEL_CONSTANTS.gastricEmptying.energySensitivityPer1000Kcal)
-        + (totals.fat * prep.fatSlowdown * MODEL_CONSTANTS.gastricEmptying.fatSensitivityPerGram)
-        + (totals.fiber * MODEL_CONSTANTS.gastricEmptying.fiberSensitivityPerGram)
-        + (totals.prot * MODEL_CONSTANTS.gastricEmptying.proteinSensitivityPerGram),
+        + ((totalCals / 1000) * MODEL_CONSTANTS.gastricBrake.energySensitivityPer1000Kcal)
+        + (totals.fat * prep.fatSlowdown * MODEL_CONSTANTS.gastricBrake.fatSensitivityPerGram)
+        + (totals.fiber * MODEL_CONSTANTS.gastricBrake.fiberSensitivityPerGram)
+        + (totals.prot * MODEL_CONSTANTS.gastricBrake.proteinSensitivityPerGram)
+        + (solubleFiberGrams * MODEL_CONSTANTS.solubleFiberBonusPerGram)
+        + (hasAcid ? MODEL_CONSTANTS.acidGastricSlowdown : 0),
         1,
-        2.4
-    );
-    const liquidFactor = prep.liquidBias || 1;
-    const carbQuality = clamp((avgGi / 100) * 0.55 + sugarRatio * 0.3 + prep.digestibility * 0.25, 0.45, 1.35);
-    const horizonHours = clamp(
-        MODEL_CONSTANTS.simulation.minHorizonHours + (totalCals / 400) + (totals.fat / 24) + (totals.fiber / 12),
-        MODEL_CONSTANTS.simulation.minHorizonHours,
-        MODEL_CONSTANTS.simulation.maxHorizonHours
+        2.2
     );
 
-    const carbSeries = simulateMacroCompartment({
-        totalKcal: netCarbs * 4,
-        gastricHalfLife: clamp((MODEL_CONSTANTS.macros.carbs.gastricHalfLifeHours * gastricBrake) / (context.gastricRate * carbQuality * liquidFactor), 0.45, 2.8),
-        absorptionHalfLife: clamp(MODEL_CONSTANTS.macros.carbs.absorptionHalfLifeHours / (context.absorptionRate * carbQuality), 0.35, 1.4),
-        utilizationHalfLife: clamp(MODEL_CONSTANTS.macros.carbs.utilizationHalfLifeHours / (context.utilizationRate * context.insulinSensitivity * carbQuality), 0.45, 1.8),
-        horizonHours,
-        dt: MODEL_CONSTANTS.simulation.dtHours,
-        smoothingBias: 0.16
+    // GI and sugar affect carb absorption speed
+    const carbSpeedFactor = clamp(
+        ((avgGi / 50) * 0.4 + sugarRatio * 0.25 + prep.digestibility * 0.35) * effectiveInsulinSensitivity,
+        0.5, 2.0
+    );
+
+    // Context modifiers: digestion speed, age, circadian, sympathetic branch
+    const contextSpeedInverse = gastricBrake / (effectiveGastricRate * circadianFactor);
+
+    // ── Carbs: gamma curve (with second-meal-effect reduction) ──
+    const carbConfig = MODEL_CONSTANTS.macros.carbs;
+    const carbTheta = (carbConfig.scaleTheta * contextSpeedInverse) / carbSpeedFactor;
+    const effectiveCarbKcal = netCarbKcal * (1 - secondMealReduction);
+    const carbSeries = generateGammaCurve({
+        totalKcal: effectiveCarbKcal,
+        shapeK: carbConfig.shapeK,
+        scaleTheta: clamp(carbTheta, 0.15, 1.2),
+        durationHours: carbConfig.durationHours * clamp(contextSpeedInverse, 0.8, 1.6),
+        dt
     });
 
-    const proteinSeries = simulateMacroCompartment({
-        totalKcal: totals.prot * 4,
-        gastricHalfLife: clamp((MODEL_CONSTANTS.macros.protein.gastricHalfLifeHours * gastricBrake) / (context.gastricRate * prep.proteinRate * liquidFactor), 0.8, 3.4),
-        absorptionHalfLife: clamp(MODEL_CONSTANTS.macros.protein.absorptionHalfLifeHours / (context.absorptionRate * prep.proteinRate), 0.6, 1.9),
-        utilizationHalfLife: clamp(MODEL_CONSTANTS.macros.protein.utilizationHalfLifeHours / context.utilizationRate, 0.8, 2.6),
-        horizonHours,
-        dt: MODEL_CONSTANTS.simulation.dtHours,
-        smoothingBias: 0.12
+    // ── Protein: gamma curve ──
+    const protConfig = MODEL_CONSTANTS.macros.protein;
+    const protTheta = (protConfig.scaleTheta * contextSpeedInverse) / prep.proteinRate;
+    const proteinSeries = generateGammaCurve({
+        totalKcal: netProtKcal,
+        shapeK: protConfig.shapeK,
+        scaleTheta: clamp(protTheta, 0.35, 2.0),
+        durationHours: protConfig.durationHours * clamp(contextSpeedInverse, 0.8, 1.5),
+        dt
     });
 
-    const fatSeries = simulateMacroCompartment({
-        totalKcal: totals.fat * 9,
-        gastricHalfLife: clamp((MODEL_CONSTANTS.macros.fat.gastricHalfLifeHours * gastricBrake * prep.fatSlowdown) / (context.gastricRate * liquidFactor), 1.4, 5.4),
-        absorptionHalfLife: clamp(MODEL_CONSTANTS.macros.fat.absorptionHalfLifeHours / (context.absorptionRate * prep.fatRate), 1.1, 3.6),
-        utilizationHalfLife: clamp(MODEL_CONSTANTS.macros.fat.utilizationHalfLifeHours / context.utilizationRate, 1.5, 4.2),
-        horizonHours,
-        dt: MODEL_CONSTANTS.simulation.dtHours,
-        smoothingBias: 0.08
+    // ── Fat: gamma curve ──
+    const fatConfig = MODEL_CONSTANTS.macros.fat;
+    const fatTheta = (fatConfig.scaleTheta * contextSpeedInverse * prep.fatSlowdown) / prep.fatRate;
+    const fatSeries = generateGammaCurve({
+        totalKcal: netFatKcal,
+        shapeK: fatConfig.shapeK,
+        scaleTheta: clamp(fatTheta, 1.0, 5.0),
+        durationHours: fatConfig.durationHours * clamp(contextSpeedInverse, 0.8, 1.8),
+        dt
     });
 
     const energy = mergeMacroEnergySeries(carbSeries, proteinSeries, fatSeries);
-    return { energy };
+    return { 
+        energy, 
+        meta: { 
+            circadianFactor, 
+            secondMealReduction, 
+            tefLoss: (totalCals - netCarbKcal - netProtKcal - netFatKcal), 
+            resistantStarchCarbs, 
+            hasAcid, 
+            solubleFiberGrams,
+            glut4Boost,
+            sympatheticSlowing
+        } 
+    };
 }
 
 function getPreparationModifiers(meal) {
     const method = meal.cookingMethod || 'boiled';
-    if (method === 'fried') return { digestibility: 0.92, fatSlowdown: 1.24, proteinRate: 0.96, fatRate: 1.08, liquidBias: 1.0 };
-    if (method === 'airfried') return { digestibility: 1.0, fatSlowdown: 1.08, proteinRate: 1.01, fatRate: 1.0, liquidBias: 1.0 };
-    if (method === 'baked') return { digestibility: 0.98, fatSlowdown: 1.1, proteinRate: 0.99, fatRate: 1.03, liquidBias: 1.0 };
-    return { digestibility: 1.0, fatSlowdown: 1.0, proteinRate: 1.0, fatRate: 1.0, liquidBias: 1.0 };
+    if (method === 'fried') return { digestibility: 0.92, fatSlowdown: 1.24, proteinRate: 0.96, fatRate: 1.08 };
+    if (method === 'airfried') return { digestibility: 1.0, fatSlowdown: 1.08, proteinRate: 1.01, fatRate: 1.0 };
+    if (method === 'baked') return { digestibility: 0.98, fatSlowdown: 1.1, proteinRate: 0.99, fatRate: 1.03 };
+    return { digestibility: 1.0, fatSlowdown: 1.0, proteinRate: 1.0, fatRate: 1.0 };
 }
 
-function simulateMacroCompartment(config) {
-    const dt = config.dt || 0.5;
-    const minSteps = Math.round(Math.max((config.horizonHours || 12) * 0.6, 3) / dt);
-    const maxSteps = Math.round(clamp((config.horizonHours || 12) * 1.75, 8, 24) / dt);
-    const stateSeries = [];
-    const displayedSeries = [];
-    let stomach = config.totalKcal || 0;
-    let gut = 0;
-    let available = 0;
+// ── Gamma-distribution energy curve ──
+// Uses the gamma PDF: f(t) = t^(k-1) * exp(-t/θ) / (θ^k * Γ(k))
+// Peak at t = (k-1)*θ for k > 1
+// The area under the curve is normalized to totalKcal
+// Duration is dynamically extended until the curve drops below 1% of peak
+function generateGammaCurve(config) {
+    const { totalKcal, shapeK, scaleTheta, durationHours, dt } = config;
+    if (totalKcal <= 0) return [];
 
-    const gastricRate = halfLifeToRate(config.gastricHalfLife);
-    const absorptionRate = halfLifeToRate(config.absorptionHalfLife);
-    const utilizationRate = halfLifeToRate(config.utilizationHalfLife);
-    const smoothingBias = config.smoothingBias || 0.1;
-    let smoothedDisplayed = 0;
+    const rawSeries = [];
 
-    for (let step = 0; step <= maxSteps; step++) {
-        const emptying = discreteFlow(stomach, gastricRate, dt);
-        stomach -= emptying;
-        gut += emptying;
+    // Compute gamma PDF values
+    const gammaK = gammaFunction(shapeK);
+    const normFactor = Math.pow(scaleTheta, shapeK) * gammaK;
 
-        const absorption = discreteFlow(gut, absorptionRate, dt);
-        gut -= absorption;
-        available += absorption;
+    // Peak of gamma PDF occurs at t = (k-1)*θ for k > 1
+    const peakTime = Math.max((shapeK - 1) * scaleTheta, dt);
+    const peakPdf = Math.pow(peakTime, shapeK - 1) * Math.exp(-peakTime / scaleTheta) / normFactor;
+    const tailThreshold = peakPdf * 0.01; // Stop when PDF drops below 1% of peak
 
-        const utilization = discreteFlow(available, utilizationRate, dt);
-        available -= utilization;
+    const minSteps = Math.ceil(durationHours / dt);
+    const maxSteps = Math.ceil(20 / dt); // Absolute max: 20 hours
 
-        const rawDisplayed = (utilization / dt) * (1 - smoothingBias) + ((absorption / dt) * smoothingBias);
-        smoothedDisplayed = step === 0
-            ? rawDisplayed
-            : ((smoothedDisplayed * 0.55) + (rawDisplayed * 0.45));
+    for (let i = 0; i <= maxSteps; i++) {
+        const t = i * dt;
+        if (t === 0 && shapeK < 1) {
+            rawSeries.push(0);
+            continue;
+        }
+        const pdf = t > 0
+            ? Math.pow(t, shapeK - 1) * Math.exp(-t / scaleTheta) / normFactor
+            : 0;
+        rawSeries.push(pdf);
 
-        displayedSeries.push(Math.max(0, smoothedDisplayed));
-        stateSeries.push({ stomach, gut, available });
-
-        const residualEnergy = stomach + gut + available;
-        const nearSettled = residualEnergy < MODEL_CONSTANTS.simulation.residualStopKcal && smoothedDisplayed < MODEL_CONSTANTS.simulation.displayedStopKcalPerHour;
-        if (step >= minSteps && nearSettled) break;
+        // After minimum duration, stop when curve has decayed sufficiently
+        if (i >= minSteps && pdf < tailThreshold) break;
     }
 
-    const trimmedSeries = trimEnergySeries(displayedSeries, stateSeries);
-    return normalizeSeriesArea(trimmedSeries, config.totalKcal || 0, dt);
+    // Normalize: scale so total area = totalKcal
+    let area = 0;
+    for (let i = 0; i < rawSeries.length; i++) {
+        area += rawSeries[i] * dt;
+    }
+
+    if (area <= 0) return rawSeries.map(() => 0);
+    const scale = totalKcal / area;
+    return rawSeries.map(v => Math.max(0, v * scale));
+}
+
+// Lanczos approximation for Γ(z)
+function gammaFunction(z) {
+    if (z < 0.5) {
+        return Math.PI / (Math.sin(Math.PI * z) * gammaFunction(1 - z));
+    }
+    z -= 1;
+    const g = 7;
+    const c = [
+        0.99999999999980993,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.32342877765313,
+        -176.61502916214059,
+        12.507343278686905,
+        -0.13857109526572012,
+        9.9843695780195716e-6,
+        1.5056327351493116e-7
+    ];
+    let x = c[0];
+    for (let i = 1; i < g + 2; i++) {
+        x += c[i] / (z + i);
+    }
+    const t = z + g + 0.5;
+    return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
 }
 
 function mergeMacroEnergySeries(carbSeries, proteinSeries, fatSeries) {
@@ -890,51 +1287,13 @@ function mergeMacroEnergySeries(carbSeries, proteinSeries, fatSeries) {
     return energy;
 }
 
-function trimEnergySeries(displaySeries, stateSeries) {
-    let lastMeaningfulIndex = displaySeries.length - 1;
-    for (let index = displaySeries.length - 1; index >= 0; index--) {
-        const value = displaySeries[index] || 0;
-        const state = stateSeries[index] || { stomach: 0, gut: 0, available: 0 };
-        if (value > 1.2 || (state.stomach + state.gut + state.available) > 3) {
-            lastMeaningfulIndex = index;
-            break;
-        }
-    }
-    const trimmed = displaySeries.slice(0, Math.max(lastMeaningfulIndex + 3, 2));
-    const lastValue = trimmed[trimmed.length - 1] || 0;
-    if (lastValue > 0.1) {
-        const fadeMultipliers = [0.82, 0.66, 0.52, 0.39, 0.28, 0.18, 0.1, 0.04];
-        fadeMultipliers.forEach((multiplier) => {
-            trimmed.push(lastValue * multiplier);
-        });
-        trimmed.push(0);
-    }
-    return trimmed;
-}
-
-function halfLifeToRate(halfLifeHours) {
-    return Math.log(2) / Math.max(halfLifeHours, 0.08);
-}
-
-function discreteFlow(pool, rate, dt) {
-    if (pool <= 0 || rate <= 0) return 0;
-    return pool * (1 - Math.exp(-rate * dt));
-}
-
-function normalizeSeriesArea(series, targetKcal, dt) {
-    if (targetKcal <= 0 || !series.length) return series;
-    const currentArea = series.reduce((sum, value) => sum + (value * dt), 0);
-    if (currentArea <= 0) return series;
-    const scale = targetKcal / currentArea;
-    return series.map((value) => value * scale);
-}
-
 function drawCharts(timeline) {
     const energyCtx = document.getElementById('energyChart').getContext('2d');
     if (energyChartInstance) energyChartInstance.destroy();
     const energyMax = Math.max(...timeline.total, 40);
-    const averageHourlyExpenditure = Math.max(timeline.meta.averageHourlyExpenditure || 0, 20);
-    const chartMax = Math.max(averageHourlyExpenditure, energyMax * 1.1);
+    const expenditureMax = Math.max(...(timeline.expenditure || [20]));
+    const chartMax = Math.max(expenditureMax * 1.15, energyMax * 1.1);
+
     energyChartInstance = new Chart(energyCtx, {
         type: 'line',
         data: {
@@ -952,13 +1311,24 @@ function drawCharts(timeline) {
                 },
                 { label: 'UH', data: timeline.carbs, borderColor: '#d83b01', borderDash: [3, 3], pointRadius: 0, borderWidth: 1.4, fill: false },
                 { label: 'P', data: timeline.protein, borderColor: '#107c10', borderDash: [3, 3], pointRadius: 0, borderWidth: 1.4, fill: false },
-                { label: 'M', data: timeline.fat, borderColor: '#a4262c', borderDash: [3, 3], pointRadius: 0, borderWidth: 1.4, fill: false }
+                { label: 'M', data: timeline.fat, borderColor: '#a4262c', borderDash: [3, 3], pointRadius: 0, borderWidth: 1.4, fill: false },
+                {
+                    label: 'Potrošnja',
+                    data: timeline.expenditure,
+                    borderColor: '#8661c5',
+                    backgroundColor: 'rgba(134,97,197,0.06)',
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    borderWidth: 1.8,
+                    fill: true,
+                    tension: 0.3
+                }
             ]
         },
         options: buildTimelineChartOptions(
             chartMax,
-            `Unos: ${timeline.meta.intakeKcal} kcal`,
-            `Deficit/suficit: ${formatDeficitLabel(timeline.meta.deficitKcal)} · Buđenje: ${timeline.meta.wakeTime}`
+            `Unos: ${timeline.meta.intakeKcal} kcal · TEF: ~${timeline.meta.tefLossKcal || 0} kcal`,
+            `Deficit/suficit: ${formatDeficitLabel(timeline.meta.deficitKcal)} · Buđenje: ${timeline.meta.wakeTime} · Spavanje: ~${timeline.meta.bedTime}`
         )
     });
 }
@@ -1011,7 +1381,7 @@ function buildTimelineChartOptions(maxY, titleText, subtitleText) {
                 ticks: {
                     font: { size: 10, weight: '700' },
                     callback: function (value, index) {
-                        return index % 4 === 0 ? this.getLabelForValue(value) : '';
+                        return index % 8 === 0 ? this.getLabelForValue(value) : '';
                     }
                 }
             }
@@ -1022,8 +1392,10 @@ function buildTimelineChartOptions(maxY, titleText, subtitleText) {
 function renderNutritionSummary(day, totals) {
     const bmr = calculateBMR(state.userProfile.weight, state.userProfile.height, state.userProfile.age, state.userProfile.gender);
     const dailyTarget = bmr * (DAY_ACTIVITY_FACTORS[day.activityLoad] || 1.18);
+    const totalActivityKcal = (day.activities || []).reduce((sum, a) => sum + (Number(a.calories) || 0), 0);
+    const finalTarget = dailyTarget + totalActivityKcal;
     const macros = [
-        { l: 'Energija', v: `${Math.round(totals.cals)} kcal`, p: (totals.cals / dailyTarget) * 100, c: '#0078d4' },
+        { l: 'Energija', v: `${Math.round(totals.cals)} kcal`, p: (totals.cals / finalTarget) * 100, c: '#0078d4' },
         { l: 'Proteini', v: `${Math.round(totals.prot)} g`, p: (totals.prot / 90) * 100, c: '#107c10' },
         { l: 'Neto ugljikohidrati', v: `${Math.round(totals.carb - totals.fiber)} g`, p: (totals.carb / 250) * 100, c: '#d83b01' },
         { l: 'Masti', v: `${Math.round(totals.fat)} g`, p: (totals.fat / 70) * 100, c: '#a4262c' }
@@ -1051,12 +1423,147 @@ function renderNutritionSummary(day, totals) {
 }
 
 function renderInteractions(day) {
-    const items = day.meals.flatMap((meal) => meal.ingredients
-        .filter((ingredient) => ingredient.interaction)
-        .map((ingredient) => ({ meal, ingredient })));
+    const entries = [];
 
-    selectors.interactionsList.innerHTML = items.length
-        ? items.map((item) => `<div class="interaction-pill"><span class="food">${formatTime(item.meal.timestamp)} · ${item.ingredient.name}</span>: ${item.ingredient.interaction}</div>`).join('')
+    // ── Per-ingredient interactions ──
+    day.meals.forEach(meal => {
+        meal.ingredients
+            .filter(ing => ing.interaction)
+            .forEach(ing => {
+                entries.push(`<div class="interaction-pill"><span class="food">${formatTime(meal.timestamp)} · ${ing.name}</span>: ${ing.interaction}</div>`);
+            });
+    });
+
+    // ── Physiological model interactions ──
+    const sortedMeals = [...day.meals].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const physioEntries = [];
+
+    // Exercise-related variables for this meal
+    const activities = day.activities || [];
+
+    sortedMeals.forEach((meal, idx) => {
+        const mealHour = getLocalMealHour(meal.timestamp);
+        const timeStr = formatTime(meal.timestamp);
+        const totals = calculateMealTotals(meal);
+
+        // Calculate Glut-4 & Sympathetic slowing to display
+        let glut4Boost = 0;
+        let sympatheticSlowing = 0;
+        let activeActivity = null;
+        let postActivity = null;
+
+        activities.forEach(act => {
+            const actHour = getLocalMealHour(act.timestamp);
+            const durationH = Math.max(0.1, (Number(act.durationMinutes) || 0) / 60);
+            const actEndHour = actHour + durationH;
+            
+            // Post-exercise GLUT-4 insulin sensitivity boost
+            const gap = normalizeDayHour(mealHour - actEndHour);
+            if (gap >= 0 && gap < 16) {
+                const decay = Math.exp(-Math.log(2) * gap / MODEL_CONSTANTS.exerciseEffects.glut4DecayHalfLifeHours);
+                const boost = MODEL_CONSTANTS.exerciseEffects.glut4PeakBoost * decay;
+                if (boost > glut4Boost) {
+                    glut4Boost = boost;
+                    postActivity = act;
+                }
+            }
+            
+            // Pre-exercise/During Exercise sympathetic gastric slowing
+            const preWindow = MODEL_CONSTANTS.exerciseEffects.preExerciseWindowHours;
+            const priorGap = normalizeDayHour(actEndHour - mealHour);
+            if (priorGap >= 0 && priorGap <= durationH + preWindow) {
+                const intensity = (Number(act.calories) || 300) / durationH;
+                const intensityFactor = clamp(intensity / 400, 0.5, 1.2);
+                const slowing = MODEL_CONSTANTS.exerciseEffects.sympatheticSlowingMax * intensityFactor;
+                if (slowing > sympatheticSlowing) {
+                    sympatheticSlowing = slowing;
+                    activeActivity = act;
+                }
+            }
+        });
+
+        if (glut4Boost > 0.05) {
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #8661c5;"><span class="food">${timeStr} · Inzulinska osjetljivost (Trening)</span>: Pojačano crpljenje glukoze zbog aktivnosti ("${postActivity.name}"). Inzulinska osjetljivost povišena je za ~${Math.round(glut4Boost * 100)}%, apsorpcija u mišiće je znatno učinkovitija.</div>`);
+        }
+        if (sympatheticSlowing > 0.10) {
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #a4262c;"><span class="food">${timeStr} · Usporena probava (Trening)</span>: Zbog blizine aktivnosti ("${activeActivity.name}"), protok krvi u probavnom sustavu je smanjen. Pražnjenje želuca je usporeno za ~${Math.round(sympatheticSlowing * 100)}%.</div>`);
+        }
+
+        // Circadian insight
+        const circ = MODEL_CONSTANTS.circadian;
+        const cf = 1 + circ.amplitude * Math.cos(2 * Math.PI * (mealHour - circ.peakHour) / 24);
+        if (cf > 1.12) {
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #107c10;"><span class="food">${timeStr} · Cirkadijalni ritam</span>: Jutarnji obrok — inzulinska osjetljivost je visoka (${Math.round(cf * 100 - 100)}% iznad prosjeka). Ugljikohidrati se brže apsorbiraju i daju blaži profil.</div>`);
+        } else if (cf < 0.88) {
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #d83b01;"><span class="food">${timeStr} · Cirkadijalni ritam</span>: Večernji obrok — inzulinska osjetljivost je niža (${Math.round(100 - cf * 100)}% ispod prosjeka). Glukoza se sporije obrađuje, peak traje dulje.</div>`);
+        }
+
+        // TEF insight (only for protein-heavy meals)
+        if (totals.prot > 20) {
+            const tefLoss = Math.round(totals.prot * 4 * MODEL_CONSTANTS.tef.protein);
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #8661c5;"><span class="food">${timeStr} · Termički efekt</span>: Probava ${Math.round(totals.prot)}g proteina troši ~${tefLoss} kcal (~25% kalorija iz proteina). Neto energija je manja od bruto unosa.</div>`);
+        }
+
+        // Second meal effect
+        if (idx > 0) {
+            const prevMeal = sortedMeals[idx - 1];
+            const prevTotals = calculateMealTotals(prevMeal);
+            const prevHour = getLocalMealHour(prevMeal.timestamp);
+            const gap = mealHour >= prevHour ? mealHour - prevHour : (mealHour + 24) - prevHour;
+            const sme = MODEL_CONSTANTS.secondMealEffect;
+            if (gap <= sme.maxGapHours && prevTotals.fiber >= sme.fiberThresholdGrams) {
+                const prevHasLegumes = prevMeal.ingredients.some(ing =>
+                    (ing.category || '').toLowerCase().includes('mahunark')
+                );
+                const fS = clamp((prevTotals.fiber - sme.fiberThresholdGrams) / 12, 0, 1);
+                const decay = Math.exp(-Math.log(2) * gap / sme.decayHalfLifeHours);
+                const reduction = clamp(sme.maxReduction * fS * (prevHasLegumes ? 1.4 : 1) * decay, 0, sme.maxReduction);
+                if (reduction > 0.03) {
+                    physioEntries.push(`<div class="interaction-pill" style="border-left-color: #0078d4;"><span class="food">${timeStr} · Second meal efekt</span>: Prethodni obrok (${formatTime(prevMeal.timestamp)}) s ${Math.round(prevTotals.fiber)}g vlakana${prevHasLegumes ? ' i mahunarkama' : ''} smanjuje glikemijski odgovor ovog obroka za ~${Math.round(reduction * 100)}%.</div>`);
+                }
+            }
+        }
+
+        // Resistant starch
+        if (meal.cookingMethod === 'boiled') {
+            const rsIngs = meal.ingredients.filter(ing =>
+                MODEL_CONSTANTS.resistantStarchFoods.some(f =>
+                    (ing.name || '').toLowerCase().includes(f.toLowerCase())
+                )
+            );
+            if (rsIngs.length > 0) {
+                const names = rsIngs.map(i => i.name).join(', ');
+                physioEntries.push(`<div class="interaction-pill" style="border-left-color: #107c10;"><span class="food">${timeStr} · Rezistentni škrob</span>: ${names} kuhan(i) — ako se ohlade, ~12% škroba postaje rezistentni škrob koji se ponaša poput vlakana i smanjuje GI.</div>`);
+            }
+        }
+
+        // Acid modifier
+        const acidIngs = meal.ingredients.filter(ing =>
+            MODEL_CONSTANTS.acidFoods.some(a =>
+                normalizeText(ing.name || '').includes(normalizeText(a))
+            )
+        );
+        if (acidIngs.length > 0) {
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #107c10;"><span class="food">${timeStr} · Kiselina u obroku</span>: ${acidIngs.map(i => i.name).join(', ')} usporava pražnjenje želuca za ~15%, što blago snižava glikemijski vrh.</div>`);
+        }
+
+        // Soluble fiber
+        let sf = 0;
+        meal.ingredients.forEach(ing => {
+            const cat = normalizeText(ing.category || '');
+            const isSoluble = MODEL_CONSTANTS.solubleFiberCategories.some(c =>
+                cat.includes(normalizeText(c))
+            );
+            if (isSoluble) sf += (ing.fiber || 0) * ((ing.amount || 100) / 100);
+        });
+        if (sf > 3) {
+            physioEntries.push(`<div class="interaction-pill" style="border-left-color: #107c10;"><span class="food">${timeStr} · Topiva vlakna</span>: ~${Math.round(sf)}g topivih vlakana (iz mahunarki/žitarica) stvara gel u crijevima koji dodatno usporava apsorpciju glukoze.</div>`);
+        }
+    });
+
+    const allEntries = [...entries, ...physioEntries];
+    selectors.interactionsList.innerHTML = allEntries.length
+        ? allEntries.join('')
         : '<p class="placeholder-text" style="color: var(--color-neutral-foreground-3); font-size: 12px; font-style: italic;">Dodaj obroke i namirnice za pregled interakcija kroz dan.</p>';
 }
 
