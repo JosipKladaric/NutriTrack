@@ -1,0 +1,669 @@
+/* 
+ * NutriTrack - Authentic Microsoft Fluent 2 Light Theme 
+ */
+
+:root {
+    /* Fluent 2 Neutral Colors */
+    --color-neutral-background-1: #ffffff;
+    --color-neutral-background-2: #f5f5f5;
+    --color-neutral-background-3: #f0f0f0;
+    --color-neutral-background-4: #fafafa;
+
+    --color-neutral-foreground-1: #242424;
+    --color-neutral-foreground-2: #424242;
+    --color-neutral-foreground-3: #616161;
+
+    --color-neutral-stroke-1: #d1d1d1;
+    --color-neutral-stroke-2: #e0e0e0;
+
+    /* Brand Colors (Microsoft Blue) */
+    --color-brand-background: #0078d4;
+    --color-brand-background-hover: #005a9e;
+    --color-brand-background-pressed: #004578;
+
+    /* Semantic Colors */
+    --color-success: #107c10;
+    --color-error: #a4262c;
+    --color-warning: #d83b01;
+
+    /* Corner Radius */
+    --border-radius-none: 0;
+    --border-radius-small: 2px;
+    --border-radius-medium: 4px;
+    --border-radius-large: 8px;
+    --border-radius-x-large: 12px;
+
+    /* Shadows (Fluent 2 Ramp) */
+    --shadow-2: 0 0 2px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.14);
+    --shadow-4: 0 0 2px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.14);
+    --shadow-8: 0 0 2px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.14);
+    --shadow-16: 0 0 2px rgba(0, 0, 0, 0.12), 0 8px 16px rgba(0, 0, 0, 0.14);
+
+    /* Typography */
+    --font-family-base: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-family-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+    --sidebar-width: 280px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--color-neutral-background-2);
+    color: var(--color-neutral-foreground-1);
+    font-family: var(--font-family-base);
+    font-size: 14px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+}
+
+h1,
+h2,
+h3 {
+    font-family: var(--font-family-display);
+    font-weight: 600;
+}
+
+.app-container {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr 1fr 1.25fr;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* Sidebar (Navigation) */
+.sidebar {
+    background-color: var(--color-neutral-background-2);
+    border-right: 1px solid var(--color-neutral-stroke-2);
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 64px;
+}
+
+.sidebar-header h2 {
+    font-size: 16px;
+    color: var(--color-neutral-foreground-1);
+}
+
+.meals-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.meal-item {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    border-radius: var(--border-radius-medium);
+    margin-bottom: 2px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+    position: relative;
+}
+
+.meal-item:hover {
+    background: var(--color-neutral-background-3);
+}
+
+.meal-item.active {
+    background: var(--color-neutral-background-1);
+    box-shadow: var(--shadow-2);
+}
+
+.meal-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 3px;
+    background: var(--color-brand-background);
+    border-radius: 2px;
+}
+
+.meal-item .meal-name {
+    font-weight: 600;
+    font-size: 14px;
+    display: block;
+    color: var(--color-neutral-foreground-1);
+}
+
+.meal-item .meal-time {
+    font-size: 12px;
+    color: var(--color-neutral-foreground-3);
+}
+
+.sidebar-footer {
+    padding: 16px 20px;
+    background: var(--color-neutral-background-3);
+    border-top: 1px solid var(--color-neutral-stroke-2);
+    margin-top: auto;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--color-brand-background);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.user-info .name {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.user-info .status {
+    font-size: 11px;
+    color: var(--color-success);
+}
+
+/* Icons Styles */
+.icon-btn {
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 6px;
+    border-radius: var(--border-radius-medium);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-neutral-foreground-2);
+}
+
+.icon-btn:hover {
+    background: var(--color-neutral-background-3);
+}
+
+.icon-btn.secondary {
+    background: var(--color-brand-background);
+    color: #ffffff;
+}
+
+.icon-btn.secondary:hover {
+    background: var(--color-brand-background-hover);
+}
+
+/* Main Content Area (Column 2) */
+.meal-editor {
+    background: var(--color-neutral-background-1);
+    border-right: 1px solid var(--color-neutral-stroke-2);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.day-header-compact {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--color-neutral-stroke-2);
+    background: white;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.day-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.day-title-block {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.day-label-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.day-controls-grid {
+    display: grid;
+    grid-template-columns: 120px 150px minmax(160px, 1fr);
+    gap: 12px;
+    align-items: end;
+}
+
+.day-content-scroll {
+    padding: 18px 24px;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.meal-list-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.meal-row-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border: 1px solid var(--color-neutral-stroke-2);
+    border-radius: 6px;
+    background: var(--color-neutral-background-1);
+}
+
+.meal-row-compact .meal-name {
+    margin-bottom: 1px;
+}
+
+.meal-row-compact .meal-time {
+    font-size: 11px;
+}
+
+.section-title-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.compact-btn {
+    height: 36px;
+    padding: 0 14px;
+}
+
+.editor-header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--color-neutral-stroke-2);
+}
+
+.editor-header h2 {
+    font-size: 24px;
+    margin-bottom: 4px;
+}
+
+.meal-meta {
+    font-size: 12px;
+    color: var(--color-neutral-foreground-3);
+}
+
+.ingredient-section {
+    padding: 24px 32px;
+}
+
+.section-header h3 {
+    font-size: 16px;
+    margin-bottom: 16px;
+}
+
+.ingredients-list {
+    list-style: none;
+}
+
+.ingredient-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--color-neutral-background-4);
+    border: 1px solid var(--color-neutral-stroke-2);
+    border-radius: var(--border-radius-medium);
+    margin-bottom: 8px;
+}
+
+.ingredient-item .name {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.ingredient-item .amount {
+    font-size: 12px;
+    color: var(--color-neutral-foreground-3);
+    background: var(--color-neutral-background-3);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+/* Nutrition Column (Column 3) */
+.nutrition-summary {
+    background: var(--color-neutral-background-2);
+    border-right: 1px solid var(--color-neutral-stroke-2);
+    padding: 24px;
+    overflow-y: auto;
+}
+
+.nutrient-card {
+    background: var(--color-neutral-background-1);
+    border: 1px solid var(--color-neutral-stroke-2);
+    border-radius: var(--border-radius-large);
+    padding: 20px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow-2);
+}
+
+.nutrient-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+}
+
+.nutrient-info .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-neutral-foreground-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.nutrient-info .value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-neutral-foreground-1);
+}
+
+.progress-bar {
+    height: 4px;
+    background: var(--color-neutral-background-3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress {
+    height: 100%;
+    transition: width 0.6s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.micro-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.micro-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-4);
+}
+
+/* Detailed Analysis (Column 4) */
+.detailed-analysis {
+    background: var(--color-neutral-background-3);
+    padding: 24px;
+    overflow-y: auto;
+}
+
+.graph-container {
+    background: var(--color-neutral-background-1);
+    border: 1px solid var(--color-neutral-stroke-2);
+    border-radius: var(--border-radius-large);
+    padding: 16px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-4);
+}
+
+.graph-container h3 {
+    font-size: 14px;
+    color: var(--color-neutral-foreground-2);
+    margin-bottom: 12px;
+}
+
+.graph-placeholder {
+    height: 180px;
+    background: var(--color-neutral-background-4);
+    border-radius: var(--border-radius-medium);
+    overflow: hidden;
+    display: block;
+    position: relative;
+}
+
+.interaction-pill {
+    background: var(--color-neutral-background-1);
+    border: 1px solid var(--color-neutral-stroke-2);
+    border-radius: var(--border-radius-medium);
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    box-shadow: var(--shadow-2);
+}
+
+.interaction-pill span.food {
+    color: var(--color-brand-background);
+    font-weight: 700;
+}
+
+.recommendations {
+    background: var(--color-brand-background);
+    color: #ffffff;
+    border-radius: var(--border-radius-x-large);
+    padding: 20px;
+    box-shadow: var(--shadow-16);
+    margin-top: 12px;
+}
+
+.recommendations h3 {
+    color: #ffffff;
+    font-size: 16px;
+    margin-bottom: 12px;
+}
+
+.recommendations li {
+    font-size: 13px;
+    margin-bottom: 8px;
+    position: relative;
+    padding-left: 20px;
+    list-style: none;
+}
+
+.recommendations li::before {
+    content: '➔';
+    position: absolute;
+    left: 0;
+    font-size: 10px;
+    opacity: 0.7;
+}
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: var(--color-neutral-background-1);
+    border-radius: var(--border-radius-large);
+    padding: 24px;
+    width: 400px;
+    box-shadow: var(--shadow-16);
+    border: 1px solid var(--color-neutral-stroke-1);
+}
+
+.modal-content h3 {
+    margin-bottom: 16px;
+}
+
+input[type="text"] {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--color-neutral-stroke-1);
+    border-bottom: 2px solid var(--color-neutral-foreground-3);
+    border-radius: var(--border-radius-medium) var(--border-radius-medium) 0 0;
+    outline: none;
+    font-family: inherit;
+    transition: border-bottom-color 0.2s;
+}
+
+input[type="text"]:focus {
+    border-bottom-color: var(--color-brand-background);
+}
+
+.btn {
+    padding: 6px 16px;
+    background: var(--color-neutral-background-1);
+    border: 1px solid var(--color-neutral-stroke-1);
+    border-radius: var(--border-radius-medium);
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.btn.primary {
+    background: var(--color-brand-background);
+    color: #ffffff;
+    border: none;
+}
+
+.btn.primary:hover {
+    background: var(--color-brand-background-hover);
+}
+
+/* Empty State */
+.empty-state-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+    padding: 40px;
+}
+
+.empty-icon {
+    font-size: 48px;
+    opacity: 0.3;
+    margin-bottom: 20px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-neutral-stroke-1);
+    border-radius: 10px;
+    border: 4px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-neutral-foreground-3);
+}
+
+@media (max-width: 1300px) {
+    .app-container {
+        grid-template-columns: 240px 1fr 1fr;
+    }
+
+    .detailed-analysis {
+        display: none;
+    }
+}
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s;
+}
+
+.modal.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background: white;
+    padding: 32px;
+    border-radius: 8px;
+    box-shadow: var(--shadow-16);
+    transform: translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal.active .modal-content {
+    transform: translateY(0);
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    height: 36px;
+    border: 1px solid var(--color-neutral-stroke-1);
+    border-radius: 4px;
+    padding: 0 12px;
+    font-size: 14px;
+    color: var(--color-neutral-foreground-1);
+    outline: none;
+    transition: border-color 0.2s;
+    background: white;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    border-color: var(--color-brand-background);
+}
+
+@media (max-width: 900px) {
+    .day-controls-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="hr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriTrack - Pametna analiza prehrane</title>
+    <meta name="description" content="Pratite dane, obroke i procjene energije kroz cijeli dan.">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <h2>Dani</h2>
+                <button id="add-day-btn" class="icon-btn" aria-label="Dodaj novi dan">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path
+                            d="M10 3.25c.41 0 .75.34.75.75v5.25H16a.75.75 0 010 1.5h-5.25V16a.75.75 0 01-1.5 0v-5.25H4a.75.75 0 010-1.5h5.25V4c0-.41.34-.75.75-.75z"
+                            fill="currentColor" />
+                    </svg>
+                </button>
+            </header>
+            <div id="days-list" class="meals-list"></div>
+            <div class="sidebar-footer" id="profile-trigger" style="cursor: pointer;">
+                <div class="user-profile">
+                    <div class="avatar" id="user-initials">JD</div>
+                    <div class="user-info">
+                        <div class="name" id="user-display-name">Josip D.</div>
+                        <div class="status" id="user-daily-status">Dana�nji unos: -- kcal</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="meal-editor">
+            <div id="day-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <header class="day-header-compact">
+                    <div class="day-top-row">
+                        <div class="day-title-block">
+                            <div class="day-label-stack">
+                                <span style="font-size: 12px; color: var(--color-neutral-foreground-3); text-transform: uppercase; letter-spacing: 0.06em;">Dan</span>
+                            </div>
+                            <input type="date" id="day-date"
+                                style="font-size: 20px; font-weight: 700; color: var(--color-neutral-foreground-1); border: none; background: transparent; outline: none; font-family: inherit; padding: 0;">
+                        </div>
+                        <button class="btn primary compact-btn" id="add-meal-btn">Dodaj obrok</button>
+                    </div>
+                    <div class="day-controls-grid">
+                        <div class="form-group">
+                            <label
+                                style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">San
+                                (h)</label>
+                            <input type="number" id="day-sleep" min="0" max="16" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label
+                                style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">Buđenje</label>
+                            <input type="time" id="day-wake-time">
+                        </div>
+                        <div class="form-group">
+                            <label
+                                style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">Aktivnost
+                                tog dana</label>
+                            <select id="day-activity">
+                                <option value="rest">Vrlo niska</option>
+                                <option value="light">Lagana</option>
+                                <option value="moderate">Umjerena</option>
+                                <option value="high">Visoka</option>
+                                <option value="intense">Vrlo visoka</option>
+                            </select>
+                        </div>
+                    </div>
+                </header>
+                <div class="day-content-scroll">
+                    <section>
+                        <div class="section-title-compact">
+                            <h3 style="font-size: 16px; margin: 0;">Obroci dana</h3>
+                            <span id="day-meal-count"
+                                style="font-size: 12px; color: var(--color-neutral-foreground-3);">0 obroka</span>
+                        </div>
+                        <div id="day-meals-list" class="meal-list-compact"></div>
+                    </section>
+
+                    <section id="meal-editor-section" class="hidden">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h3 style="font-size: 16px; margin: 0;">Uredivanje obroka</h3>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div class="form-group">
+                                <label
+                                    style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">Naziv
+                                    obroka</label>
+                                <input type="text" id="meal-title" placeholder="Naziv obroka">
+                            </div>
+                            <div class="form-group">
+                                <label
+                                    style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">Vrijeme
+                                    obroka</label>
+                                <input type="datetime-local" id="meal-timestamp">
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div class="form-group">
+                                <label
+                                    style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">Nacin
+                                    pripreme</label>
+                                <select id="meal-cooking">
+                                    <option value="boiled">Kuhano</option>
+                                    <option value="baked">Peceno</option>
+                                    <option value="airfried">Air fryer</option>
+                                    <option value="fried">Pr�eno</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label
+                                    style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 6px;">Ulje
+                                    u pripremi</label>
+                                <select id="meal-oil">
+                                    <option value="none">Bez ulja</option>
+                                    <option value="low">Ni&#382;a</option>
+                                    <option value="medium">Srednje ulja</option>
+                                    <option value="high">Vi�e ulja</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="inline-search" style="margin-bottom: 16px; position: relative;">
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="ingredient-search" placeholder="Upi�i za dodavanje..."
+                                    style="flex: 1; height: 36px; padding: 0 12px; border: 1px solid var(--color-neutral-stroke-1); border-radius: 4px; font-size: 13px; outline: none;">
+                                <button id="quick-add-btn" class="icon-btn secondary"
+                                    style="width: 36px; height: 36px; border-radius: 4px;">+</button>
+                            </div>
+                            <div id="search-results" class="search-results"
+                                style="position: absolute; width: 100%; top: 100%; left: 0; z-index: 1000; background: white; border-radius: 4px; box-shadow: var(--shadow-8); max-height: 250px; overflow-y: auto; display: none; margin-top: 4px; border: 1px solid var(--color-neutral-stroke-1);">
+                            </div>
+                        </div>
+                        <ul id="ingredients-list" class="ingredients-list"></ul>
+                    </section>
+
+                    <div id="meal-empty-state"
+                        style="padding: 20px; border: 1px dashed var(--color-neutral-stroke-1); border-radius: 8px; color: var(--color-neutral-foreground-3); font-style: italic;">
+                        Odaberi obrok za uredivanje ili dodaj novi obrok za ovaj dan.
+                    </div>
+                </div>
+            </div>
+            <div id="empty-state" class="empty-state-container">
+                <div class="empty-icon">??</div>
+                <h2>Pracenje dana</h2>
+                <p>Zapocni dodavanjem prvog dana, a zatim unesi obroke, san i aktivnost.</p>
+                <button class="btn primary" onclick="createNewDay()">Dodaj prvi dan</button>
+            </div>
+        </main>
+
+        <aside class="nutrition-summary">
+            <header class="section-header">
+                <h2>Sa�etak dana</h2>
+            </header>
+            <div id="nutrition-data"></div>
+        </aside>
+
+        <aside class="detailed-analysis">
+            <header class="section-header">
+                <h2>Fiziolo�ka analiza</h2>
+            </header><div class="graph-container">
+                <h3>Profil otpu�tanja energije kroz 24h</h3>
+                <div class="graph-placeholder" style="height: 170px;">
+                    <canvas id="energyChart"></canvas>
+                </div>
+                <div class="source-citation"
+                    style="margin-top: 8px; font-size: 10px; color: var(--color-neutral-foreground-3); font-style: italic; opacity: 0.8;">
+                    Izvor: heuristicki model dnevne agregacije svih obroka temeljen na pra�njenju �eluca, apsorpciji makronutrijenata i utjecaju nacina pripreme.
+                </div>
+            </div>
+            <div id="interactions-section">
+                <h4>Interakcije tijekom dana</h4>
+                <div id="interactions-list"></div>
+            </div>
+            <footer class="recommendations">
+                <h3>Uvidi i savjeti</h3>
+                <ul id="recommendations-list"></ul>
+            </footer>
+        </aside>
+    </div>
+
+    <div id="profile-modal" class="modal">
+        <div class="modal-content" style="width: 520px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <h3 style="margin: 0; font-size: 20px;">Osobni zdravstveni profil</h3>
+                <button id="close-profile-btn" class="icon-btn" style="padding: 4px;"><svg width="20" height="20"
+                        viewBox="0 0 20 20" fill="currentColor">
+                        <path
+                            d="M5.23 4.22a.75.75 0 00-1.06 1.06L8.94 10l-4.77 4.72a.75.75 0 101.06 1.06L10 11.06l4.72 4.77a.75.75 0 101.06-1.06L11.06 10l4.77-4.72a.75.75 0 00-1.06-1.06L10 8.94 5.23 4.22z" />
+                    </svg></button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="form-group">
+                    <label
+                        style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Ime i
+                        prezime</label>
+                    <input type="text" id="profile-name" value="Josip D.">
+                </div>
+                <div class="form-group">
+                    <label
+                        style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Spol</label>
+                    <select id="profile-gender">
+                        <option value="male">Mu�ki</option>
+                        <option value="female">�enski</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label
+                        style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Dob</label>
+                    <input type="number" id="profile-age" value="30">
+                </div>
+                <div class="form-group">
+                    <label style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Te&#382;ina (kg)</label>
+                    <input type="number" id="profile-weight" value="80">
+                </div>
+                <div class="form-group">
+                    <label
+                        style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Visina
+                        (cm)</label>
+                    <input type="number" id="profile-height" value="180">
+                </div>
+                <div class="form-group">
+                    <label
+                        style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Inzulinska
+                        osjetljivost</label>
+                    <select id="profile-insulin">
+                        <option value="high">Visoka</option>
+                        <option value="normal" selected>Normalna</option>
+                        <option value="low">Ni&#382;a</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label
+                        style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Brzina
+                        probave</label>
+                    <select id="profile-digestion">
+                        <option value="slow">Sporija</option>
+                        <option value="normal" selected>Normalna</option>
+                        <option value="fast">Br&#382;a</option>
+                    </select>
+                    <div
+                        style="margin-top: 8px; font-size: 11px; color: var(--color-neutral-foreground-3); line-height: 1.5;">
+                        Pove&#263;aj inzulinsku osjetljivost ako nakon obroka obi&#269;no nema&#353; velike padove energije i bolje podnosi&#353; ugljikohidrate.
+                        Smanji je ako &#269;e&#353;&#263;e ima&#353; ja&#269;i skok pa pad energije. Br&#382;u probavu odaberi ako si gladan ranije od o&#269;ekivanog, a sporiju ako ti obroci ina&#269;e dulje &bdquo;sjede&ldquo;.
+                    </div>
+                </div>
+            </div>
+
+            <div
+                style="margin-top: 24px; padding: 16px; background: var(--color-neutral-background-2); border-radius: 8px; border-left: 4px solid var(--color-brand-background);">
+                <div
+                    style="font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); text-transform: uppercase;">
+                    Procijenjeni bazalni metabolizam</div>
+                <div id="profile-bmr"
+                    style="font-size: 24px; font-weight: 700; color: var(--color-neutral-foreground-1);">1755 kcal/dan
+                </div>
+                <div style="font-size: 11px; color: var(--color-neutral-foreground-3); margin-top: 4px;">Mifflin-St Jeor
+                    procjena bez dnevnog faktora aktivnosti</div>
+            </div>
+
+            <button class="btn primary" id="save-profile-btn"
+                style="width: 100%; height: 40px; margin-top: 24px; font-size: 14px;">A�uriraj profil</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app_v24.js"></script>
+</body>
+
+</html>
