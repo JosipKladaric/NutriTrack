@@ -28,10 +28,10 @@
             <div id="days-list" class="meals-list"></div>
             <div class="sidebar-footer" id="profile-trigger" style="cursor: pointer;">
                 <div class="user-profile">
-                    <div class="avatar" id="user-initials">JD</div>
+                    <div class="avatar" id="user-initials">K</div>
                     <div class="user-info">
-                        <div class="name" id="user-display-name">Josip D.</div>
-                        <div class="status" id="user-daily-status">Dana�nji unos: -- kcal</div>
+                        <div class="name" id="user-display-name">Korisnik</div>
+                        <div class="status" id="user-daily-status">Današnji unos: -- kcal</div>
                     </div>
                 </div>
             </div>
@@ -48,7 +48,10 @@
                             <input type="date" id="day-date"
                                 style="font-size: 20px; font-weight: 700; color: var(--color-neutral-foreground-1); border: none; background: transparent; outline: none; font-family: inherit; padding: 0;">
                         </div>
-                        <button class="btn primary compact-btn" id="add-meal-btn">Dodaj obrok</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn secondary compact-btn" id="add-activity-btn">Dodaj aktivnost</button>
+                            <button class="btn primary compact-btn" id="add-meal-btn">Dodaj obrok</button>
+                        </div>
                     </div>
                     <div class="day-controls-grid">
                         <div class="form-group">
@@ -77,6 +80,15 @@
                     </div>
                 </header>
                 <div class="day-content-scroll">
+                    <section>
+                        <div class="section-title-compact" style="margin-top: 16px;">
+                            <h3 style="font-size: 16px; margin: 0;">Aktivnosti (Treninzi)</h3>
+                            <span id="day-activity-count"
+                                style="font-size: 12px; color: var(--color-neutral-foreground-3);">0 aktivnosti</span>
+                        </div>
+                        <div id="day-activities-list" class="meal-list-compact" style="margin-bottom: 16px;"></div>
+                    </section>
+
                     <section>
                         <div class="section-title-compact">
                             <h3 style="font-size: 16px; margin: 0;">Obroci dana</h3>
@@ -111,9 +123,9 @@
                                     pripreme</label>
                                 <select id="meal-cooking">
                                     <option value="boiled">Kuhano</option>
-                                    <option value="baked">Peceno</option>
+                                    <option value="baked">Pečeno</option>
                                     <option value="airfried">Air fryer</option>
-                                    <option value="fried">Pr�eno</option>
+                                    <option value="fried">Prženo</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -122,9 +134,9 @@
                                     u pripremi</label>
                                 <select id="meal-oil">
                                     <option value="none">Bez ulja</option>
-                                    <option value="low">Ni&#382;a</option>
+                                    <option value="low">Niža</option>
                                     <option value="medium">Srednje ulja</option>
-                                    <option value="high">Vi�e ulja</option>
+                                    <option value="high">Više ulja</option>
                                 </select>
                             </div>
                         </div>
@@ -150,8 +162,8 @@
             </div>
             <div id="empty-state" class="empty-state-container">
                 <div class="empty-icon">??</div>
-                <h2>Pracenje dana</h2>
-                <p>Zapocni dodavanjem prvog dana, a zatim unesi obroke, san i aktivnost.</p>
+                <h2>Praćenje dana</h2>
+                <p>Započni dodavanjem prvog dana, a zatim unesi obroke, san i aktivnost.</p>
                 <button class="btn primary" onclick="createNewDay()">Dodaj prvi dan</button>
             </div>
         </main>
@@ -165,15 +177,15 @@
 
         <aside class="detailed-analysis">
             <header class="section-header">
-                <h2>Fiziolo�ka analiza</h2>
+                <h2>Fiziološka analiza</h2>
             </header><div class="graph-container">
-                <h3>Profil otpu�tanja energije kroz 24h</h3>
+                <h3>Profil otpuštanja energije kroz 24h</h3>
                 <div class="graph-placeholder" style="height: 170px;">
                     <canvas id="energyChart"></canvas>
                 </div>
                 <div class="source-citation"
                     style="margin-top: 8px; font-size: 10px; color: var(--color-neutral-foreground-3); font-style: italic; opacity: 0.8;">
-                    Izvor: heuristicki model dnevne agregacije svih obroka temeljen na pra�njenju �eluca, apsorpciji makronutrijenata i utjecaju nacina pripreme.
+                    Izvor: gamma-distribucijski model apsorpcije makronutrijenata kalibriran prema CGM i kliničkim podacima (PMC8120054, PMC7014867, PMC6781941). Peak UH ~45 min, proteini ~90 min, masti ~3 h.
                 </div>
             </div>
             <div id="interactions-section">
@@ -209,8 +221,8 @@
                     <label
                         style="display: block; font-size: 12px; font-weight: 600; color: var(--color-neutral-foreground-3); margin-bottom: 8px;">Spol</label>
                     <select id="profile-gender">
-                        <option value="male">Mu�ki</option>
-                        <option value="female">�enski</option>
+                        <option value="male">Muški</option>
+                        <option value="female">Ženski</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -245,12 +257,12 @@
                     <select id="profile-digestion">
                         <option value="slow">Sporija</option>
                         <option value="normal" selected>Normalna</option>
-                        <option value="fast">Br&#382;a</option>
+                        <option value="fast">Brža</option>
                     </select>
                     <div
                         style="margin-top: 8px; font-size: 11px; color: var(--color-neutral-foreground-3); line-height: 1.5;">
-                        Pove&#263;aj inzulinsku osjetljivost ako nakon obroka obi&#269;no nema&#353; velike padove energije i bolje podnosi&#353; ugljikohidrate.
-                        Smanji je ako &#269;e&#353;&#263;e ima&#353; ja&#269;i skok pa pad energije. Br&#382;u probavu odaberi ako si gladan ranije od o&#269;ekivanog, a sporiju ako ti obroci ina&#269;e dulje &bdquo;sjede&ldquo;.
+                        Povećaj inzulinsku osjetljivost ako nakon obroka obično nemaš velike padove energije i bolje podnosiš ugljikohidrate.
+                        Smanji je ako ćešće imaš jači skok pa pad energije. Bržu probavu odaberi ako si gladan ranije od očekivanog, a sporiju ako ti obroci inače dulje „sjede“.
                     </div>
                 </div>
             </div>
@@ -268,7 +280,7 @@
             </div>
 
             <button class="btn primary" id="save-profile-btn"
-                style="width: 100%; height: 40px; margin-top: 24px; font-size: 14px;">A�uriraj profil</button>
+                style="width: 100%; height: 40px; margin-top: 24px; font-size: 14px;">Ažuriraj profil</button>
         </div>
     </div>
 
